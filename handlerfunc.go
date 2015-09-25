@@ -40,13 +40,13 @@ import (
 // measurement interval divided by granularity.
 const DefaultGranularity = 32
 
-var expHandlers = expvar.NewMap("exphttp")
 // DefaultLogger is used when creating new ExpHandlers, and used to log requests
 // and timing info to Stderr.
 //
 // Set to nil to disable before calling NewExpHandler()
 var DefaultLogger = log.New(os.Stderr, "", log.LstdFlags)
 
+var expHandlers *expvar.Map
 
 // ExpHandlerFunc is a http.HandlerFunc that returns it's own HTTP StatusCode.
 type ExpHandlerFunc func(w http.ResponseWriter, r *http.Request) int
@@ -97,10 +97,13 @@ type ExpHandler struct {
 }
 
 // NewExpHandler creates a new ExpHandler, publishes a new expvar.Map to track
-// it, sets a default Durations={"min": time.Minute}, set Log=DefaultLogger,
+// it, sets a default Durations={"min": time.Minute}, sets Log=DefaultLogger,
 // and adds name to the exposed "exphttp" map so that stats polling code
 // can auto-discover.
 func NewExpHandler(name string, h ExpHandlerFunc) *ExpHandler {
+	if expHandlers == nil {
+		expHandlers = expvar.NewMap("exphttp")
+	}
 	e := &ExpHandler{
 		Name:        name,
 		Stats:       expvar.NewMap(name),

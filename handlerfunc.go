@@ -1,7 +1,26 @@
 // Package exphttp implements HTTP request/response timing collection for the
 // standard `net/http` package.
 //
-// Although it's more efficient with a little tweak.
+// Example usage:
+//     func getThePage(w http.ResponseWriter, r *http.Request) {
+//        fmt.Fprint(w, "neat page")
+//     }
+//
+//     http.HandleFunc("/thepage/", getThePage)
+//
+//     // same page, but now with stats tracked!
+//     http.Handle("/thepage2/", exphttp.NewExpHandler("thepage2", MakeExpHandlerFunc(getThePage)))
+//
+// Although it's more efficient with a slightly tweaked http.HandlerFunc that
+// returns the response status code. Here the handler is modified to return its
+// status code work with exphttp:
+//     func getThePage2(w http.ResponseWriter, r *http.Request) int {
+//        fmt.Fprint(w, "neat page")
+//        return http.StatusOK
+//     }
+//
+//     http.Handle("/thepage2/", exphttp.NewExpHandler("thepage2", getThePage2))
+//
 package exphttp
 
 import (
@@ -9,6 +28,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -21,6 +41,12 @@ import (
 const DefaultGranularity = 32
 
 var expHandlers = expvar.NewMap("exphttp")
+// DefaultLogger is used when creating new ExpHandlers, and used to log requests
+// and timing info to Stderr.
+//
+// Set to nil to disable before calling NewExpHandler()
+var DefaultLogger = log.New(os.Stderr, "", log.LstdFlags)
+
 
 // ExpHandlerFunc is a http.HandlerFunc that returns it's own HTTP StatusCode.
 type ExpHandlerFunc func(w http.ResponseWriter, r *http.Request) int
@@ -62,20 +88,25 @@ type ExpHandler struct {
 	// HandlerFunc is the ExpHandlerFunc that is tracked.
 	HandlerFunc ExpHandlerFunc
 
+	// Log requests to this logger if non-nil.
+	Log *log.Logger
+
 	didInit      bool
 	reqCounters  []*RateCounter
 	respCounters []*RateCounter
 }
 
 // NewExpHandler creates a new ExpHandler, publishes a new expvar.Map to track
-// it, sets a default Durations={"min": time.Minute}, and adds name to the
-// exposed "exphttp" map so that polling code can auto-discover.
+// it, sets a default Durations={"min": time.Minute}, set Log=DefaultLogger,
+// and adds name to the exposed "exphttp" map so that stats polling code
+// can auto-discover.
 func NewExpHandler(name string, h ExpHandlerFunc) *ExpHandler {
 	e := &ExpHandler{
 		Name:        name,
 		Stats:       expvar.NewMap(name),
 		Durations:   map[string]time.Duration{"min": time.Minute},
 		HandlerFunc: h,
+		Log:         DefaultLogger,
 	}
 
 	expHandlers.Add(name, 1)
@@ -113,7 +144,9 @@ func (e *ExpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if p := recover(); p != nil {
 			elap := time.Now().Sub(startTime).Nanoseconds()
 
-			log.Println("caught panic: ", p)
+			if e.Log != nil {
+				e.Log.Println("caught panic: ", p)
+			}
 			e.Stats.Add("panics", 1)
 			e.Stats.Add("responses", 1)
 			for _, rc := range e.respCounters {
@@ -131,7 +164,9 @@ func (e *ExpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	////////
 	elapsed := time.Now().Sub(startTime).Nanoseconds()
-	log.Println(float64(elapsed)/1000000.0, "ms -- ", code, "--", r.URL)
+	if e.Log != nil {
+		e.Log.Println(float64(elapsed)/1000000.0, "ms --", code, "--", r.Method, r.URL)
+	}
 
 	e.Stats.Add("responses", 1)
 	for _, rc := range e.respCounters {

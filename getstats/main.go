@@ -1,5 +1,15 @@
-// Command getstats polls a expvar endpoint and dumps collectd values for
-// memory information and exphttp and exprpcs data entries.
+// Command getstats polls a expvar endpoint and dumps values for collectd
+// including memstats, exphttp, exprpcs data entries.
+//
+// Usage is straightforward with the collectd `exec` plugin:
+//    https://collectd.org/documentation/manpages/collectd-exec.5.shtml
+//
+// Loading an example exec.conf:
+//     LoadPlugin exec
+//     <Plugin exec>
+//        Exec "user:group" "/path/to/getstats" "-h" "prod1" "-i main" "-u" "http://127.0.0.1:3000/debug/vars"
+//     </Plugin>
+//
 package main
 
 import (
